@@ -76,49 +76,6 @@ def _iter_test_pt_cases(test_pt_path: Path):
         yield idx, prompt, groundtruth, bytes(image_bytes)
 
 
-def _save_attempt_artifacts(attempt_traces: list[dict[str, Any]], output_dir: Path) -> None:
-    trace_root = output_dir / "edit_traces"
-    invalid_root = output_dir / "invalid_scenarios"
-    trace_root.mkdir(parents=True, exist_ok=True)
-    invalid_root.mkdir(parents=True, exist_ok=True)
-    for idx, trace in enumerate(attempt_traces):
-        scenario_id = trace.get("scenario_id") or f"scenario_{idx:03d}"
-        attempts = trace.get("attempts", [])
-        status = str(trace.get("status", ""))
-        target_root = invalid_root if status.startswith("skipped") else trace_root
-        scenario_dir = target_root / f"{idx:03d}_{scenario_id}"
-        scenario_dir.mkdir(parents=True, exist_ok=True)
-        for attempt_idx, attempt in enumerate(attempts):
-            image = attempt.get("image")
-            if image is not None:
-                stage = attempt.get("stage", "attempt")
-                try_idx = attempt.get("regen_try", attempt.get("edit_try", attempt_idx + 1))
-                image.save(scenario_dir / f"{attempt_idx:03d}_{stage}_{try_idx}.png")
-        trace_payload = []
-        for attempt in attempts:
-            trace_payload.append(
-                {
-                    "stage": attempt.get("stage"),
-                    "regen_try": attempt.get("regen_try"),
-                    "edit_try": attempt.get("edit_try"),
-                    "edit_prompt": attempt.get("edit_prompt"),
-                    "prompt_spec": attempt.get("prompt_spec"),
-                    "verification": attempt.get("verification"),
-                    "has_image": attempt.get("image") is not None,
-                }
-            )
-        _save_json_log(
-            {
-                "scenario_id": scenario_id,
-                "status": status,
-                "selected_stage": trace.get("selected_stage"),
-                "selected_try": trace.get("selected_try"),
-                "attempts": trace_payload,
-            },
-            scenario_dir / "trace.json",
-        )
-
-
 
 def _save_json_log(log_payload: dict[str, Any], log_path: Path) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,7 +108,6 @@ def main() -> None:
     parser.add_argument("--num-answers-per-scenario", type=int, help="Answers per scenario.")
     parser.add_argument("--scenario-regen-rounds", type=int, help="Max regeneration rounds to refill aligned scenarios.")
     parser.add_argument("--top-k", type=int, help="Number of selected examples.")
-    parser.add_argument("--history-image-window", type=int, help="Number of recent history images for verify/edit context.")
     parser.add_argument(
         "--preserve-original-query",
         action=argparse.BooleanOptionalAction,
@@ -166,16 +122,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--image-generation-pipe",
-        choices=["stub", "qwen_edit"],
-        help="Image generation backend. Use 'qwen_edit' to run Qwen-Image-Edit generation.",
+        choices=["code_synthesis"],
+        help="Image generation backend.",
     )
     parser.add_argument(
         "--dry-run",
         action=argparse.BooleanOptionalAction,
         default=None,
         help=(
-            "Skip real image generation. Defaults to true for --image-generation-pipe stub "
-            "and false for --image-generation-pipe qwen_edit."
+            "Skip real image generation. Defaults to false for code_synthesis."
         ),
     )
     parser.add_argument("--output-dir", help="Directory for generated images.")
@@ -196,8 +151,6 @@ def main() -> None:
     num_answers_per_scenario = int(_coalesce(args.num_answers_per_scenario, run_cfg, "num_answers_per_scenario") or 1)
     scenario_regen_rounds = int(_coalesce(args.scenario_regen_rounds, run_cfg, "scenario_regen_rounds") or 3)
     top_k = int(_coalesce(args.top_k, run_cfg, "top_k") or 3)
-    history_image_window_raw = _coalesce(args.history_image_window, run_cfg, "history_image_window")
-    history_image_window = int(history_image_window_raw) if history_image_window_raw is not None else 3
     preserve_original_query_cfg = _coalesce(args.preserve_original_query, run_cfg, "preserve_original_query")
     preserve_original_query = True if preserve_original_query_cfg is None else bool(preserve_original_query_cfg)
     original_image_verify_cfg = _coalesce(args.original_image_verify, run_cfg, "original_image_verify")
@@ -206,7 +159,7 @@ def main() -> None:
     answer_sampling_format_retry_times = (
         int(answer_sampling_format_retry_times_raw) if answer_sampling_format_retry_times_raw is not None else 5
     )
-    image_generation_pipe = _coalesce(args.image_generation_pipe, run_cfg, "image_generation_pipe") or "stub"
+    image_generation_pipe = _coalesce(args.image_generation_pipe, run_cfg, "image_generation_pipe") or "code_synthesis"
     output_dir = _coalesce(args.output_dir, run_cfg, "output_dir") or "synthetic_outputs"
     test_pt_path_raw = _coalesce(None, run_cfg, "test_pt_path")
     log_json_path = _coalesce(args.log_json_path, run_cfg, "log_json_path")
@@ -221,7 +174,7 @@ def main() -> None:
 
     dry_run = args.dry_run if args.dry_run is not None else run_cfg.get("dry_run")
     if dry_run is None:
-        dry_run = image_generation_pipe != "qwen_edit"
+        dry_run = False
 
     import importlib.util
 
@@ -230,13 +183,12 @@ def main() -> None:
 
     from PIL import Image
 
-    image_generation_module = create_image_generation_module(image_generation_pipe)
-
     backbone = MLLMBackbone(
         api_key=_coalesce(args.mllm_api_key, mllm_cfg, "api_key"),
         base_url=_coalesce(args.mllm_base_url, mllm_cfg, "base_url"),
         model=_coalesce(args.mllm_model_name, mllm_cfg, "model_name"),
     )
+    image_generation_module = create_image_generation_module(backbone)
     pipeline = SyntheticICLPipeline(backbone, image_generation_module=image_generation_module)
     if hasattr(pipeline.answer_sampling_module, "format_retry_times"):
         pipeline.answer_sampling_module.format_retry_times = max(0, answer_sampling_format_retry_times)
@@ -258,7 +210,6 @@ def main() -> None:
                 top_k=top_k,
                 dry_run=bool(dry_run),
                 verbose=verbose,
-                history_image_window=history_image_window,
                 preserve_original_query=preserve_original_query,
                 original_image_verify=original_image_verify,
                 scenario_regen_rounds=scenario_regen_rounds,
@@ -266,8 +217,7 @@ def main() -> None:
 
             if not dry_run:
                 _save_generated_images(pipeline.last_candidates, case_dir)
-                _save_attempt_artifacts(pipeline.last_attempt_traces, case_dir)
-
+    
             if log_json_path:
                 _save_json_log(pipeline.last_run_log, case_dir / Path(log_json_path).name)
 
@@ -288,7 +238,6 @@ def main() -> None:
             top_k=top_k,
             dry_run=bool(dry_run),
             verbose=verbose,
-            history_image_window=history_image_window,
             preserve_original_query=preserve_original_query,
             original_image_verify=original_image_verify,
             scenario_regen_rounds=scenario_regen_rounds,
@@ -296,7 +245,6 @@ def main() -> None:
 
         if not dry_run:
             _save_generated_images(pipeline.last_candidates, output_root)
-            _save_attempt_artifacts(pipeline.last_attempt_traces, output_root)
 
         if log_json_path:
             _save_json_log(pipeline.last_run_log, Path(log_json_path))
