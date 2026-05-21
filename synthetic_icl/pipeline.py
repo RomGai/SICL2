@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import logging
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -37,6 +38,35 @@ class SyntheticICLPipeline:
         self.last_candidates: list[SyntheticExample] = []
         self.last_run_log: dict[str, Any] = {}
         self.last_attempt_traces: list[dict[str, Any]] = []
+        self.logger = logging.getLogger(__name__)
+
+    _T = TypeVar("_T")
+
+    def _run_with_retry(
+        self,
+        operation: Callable[[], _T],
+        *,
+        label: str,
+        max_retries: int,
+    ) -> _T:
+        """Run operation with bounded retries for transient model/runtime failures."""
+        last_error: Exception | None = None
+        for attempt_idx in range(max_retries + 1):
+            try:
+                return operation()
+            except Exception as exc:  # noqa: BLE001 - attempt-level resiliency across model/runtime errors
+                last_error = exc
+                if attempt_idx >= max_retries:
+                    break
+                self.logger.warning(
+                    "Retrying %s after failure (%d/%d): %s",
+                    label,
+                    attempt_idx + 1,
+                    max_retries + 1,
+                    exc,
+                )
+        assert last_error is not None
+        raise last_error
 
     def run(
         self,
@@ -49,6 +79,8 @@ class SyntheticICLPipeline:
         preserve_original_query: bool = True,
         scenario_regen_rounds: int = 3,
         max_replan_rounds: int = 2,
+        generation_retry_rounds: int = 1,
+        verification_retry_rounds: int = 1,
     ) -> list[SyntheticExample]:
         understanding = self.image_understanding_module.run(original_image, original_query)
         task_ir = self.task_induction_module.run(original_query, understanding)
@@ -75,17 +107,39 @@ class SyntheticICLPipeline:
                 run_context = dict(router_decision)
                 run_context["replan_round"] = try_idx + 1
                 run_context["verification_feedback"] = feedback
-                bundle = self.image_generation_module.generate(original_image, prompt_spec, synthesis_context=run_context)
-                verification = self.verification_module.run(
-                    synthetic_image=bundle.image,
-                    evaluation_query=answer_spec.query or original_query,
-                    known_answer=answer_spec.answer,
-                    task_ir=task_ir,
-                    scenario=scenario,
-                    answer_spec=answer_spec,
-                    source_query=original_query,
-                    synthesis_trace={"router": router_decision, "route": bundle.route, "plan": bundle.plan, "trace": bundle.trace},
-                )
+                try:
+                    bundle = self._run_with_retry(
+                        lambda: self.image_generation_module.generate(original_image, prompt_spec, synthesis_context=run_context),
+                        label="image generation",
+                        max_retries=generation_retry_rounds,
+                    )
+                    verification = self._run_with_retry(
+                        lambda: self.verification_module.run(
+                            synthetic_image=bundle.image,
+                            evaluation_query=answer_spec.query or original_query,
+                            known_answer=answer_spec.answer,
+                            task_ir=task_ir,
+                            scenario=scenario,
+                            answer_spec=answer_spec,
+                            source_query=original_query,
+                            synthesis_trace={"router": router_decision, "route": bundle.route, "plan": bundle.plan, "trace": bundle.trace},
+                        ),
+                        label="verification",
+                        max_retries=verification_retry_rounds,
+                    )
+                except Exception as exc:  # noqa: BLE001 - replan should absorb per-attempt failures
+                    error_msg = f"{type(exc).__name__}: {exc}"
+                    last_verification = {"is_valid_demo": False, "reason": "attempt_error", "error": error_msg}
+                    traces.append(
+                        {
+                            "scenario_id": scenario.scenario_id,
+                            "try": try_idx + 1,
+                            "error": error_msg,
+                            "verification": last_verification,
+                        }
+                    )
+                    feedback = {"issues": [{"category": "runtime_failure", "details": error_msg}], "reason": "attempt_error"}
+                    continue
                 last_verification = verification
                 traces.append({"scenario_id": scenario.scenario_id, "route": bundle.route, "try": try_idx + 1, "verification": verification})
                 if bool(verification.get("is_valid_demo")):

@@ -107,6 +107,9 @@ def main() -> None:
     parser.add_argument("--num-scenarios", type=int, help="Number of scenarios to expand.")
     parser.add_argument("--num-answers-per-scenario", type=int, help="Answers per scenario.")
     parser.add_argument("--scenario-regen-rounds", type=int, help="Max regeneration rounds to refill aligned scenarios.")
+    parser.add_argument("--max-replan-rounds", type=int, help="Max replan rounds per attempt.")
+    parser.add_argument("--generation-retry-rounds", type=int, help="Retries for generation failures per attempt.")
+    parser.add_argument("--verification-retry-rounds", type=int, help="Retries for verification failures per attempt.")
     parser.add_argument("--top-k", type=int, help="Number of selected examples.")
     parser.add_argument(
         "--preserve-original-query",
@@ -147,6 +150,9 @@ def main() -> None:
     num_scenarios = int(_coalesce(args.num_scenarios, run_cfg, "num_scenarios") or 5)
     num_answers_per_scenario = int(_coalesce(args.num_answers_per_scenario, run_cfg, "num_answers_per_scenario") or 1)
     scenario_regen_rounds = int(_coalesce(args.scenario_regen_rounds, run_cfg, "scenario_regen_rounds") or 3)
+    max_replan_rounds = int(_coalesce(args.max_replan_rounds, run_cfg, "max_replan_rounds") or 2)
+    generation_retry_rounds = int(_coalesce(args.generation_retry_rounds, run_cfg, "generation_retry_rounds") or 1)
+    verification_retry_rounds = int(_coalesce(args.verification_retry_rounds, run_cfg, "verification_retry_rounds") or 1)
     top_k = int(_coalesce(args.top_k, run_cfg, "top_k") or 3)
     preserve_original_query_cfg = _coalesce(args.preserve_original_query, run_cfg, "preserve_original_query")
     preserve_original_query = True if preserve_original_query_cfg is None else bool(preserve_original_query_cfg)
@@ -210,6 +216,9 @@ def main() -> None:
                 dry_run=bool(dry_run),
                 preserve_original_query=preserve_original_query,
                 scenario_regen_rounds=scenario_regen_rounds,
+                max_replan_rounds=max_replan_rounds,
+                generation_retry_rounds=generation_retry_rounds,
+                verification_retry_rounds=verification_retry_rounds,
             )
 
             if not dry_run:
@@ -236,6 +245,9 @@ def main() -> None:
             dry_run=bool(dry_run),
             preserve_original_query=preserve_original_query,
             scenario_regen_rounds=scenario_regen_rounds,
+            max_replan_rounds=max_replan_rounds,
+            generation_retry_rounds=generation_retry_rounds,
+            verification_retry_rounds=verification_retry_rounds,
         )
 
         if not dry_run:
