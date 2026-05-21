@@ -10,7 +10,15 @@ from synthetic_icl.json_utils import llm_json_call_with_retry
 from synthetic_icl.schemas import TaskIR
 
 
+
 class SynthesisRouterModule:
+    @staticmethod
+    def _safe_float(value: Any, default: float = 0.5) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
     def __init__(self, backbone: MLLMBackbone, routes: list[str] | None = None) -> None:
         self.backbone = backbone
         self.routes = routes or ["matplotlib_python", "plotly_python"]
