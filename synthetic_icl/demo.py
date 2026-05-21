@@ -115,12 +115,6 @@ def main() -> None:
         help="Whether synthetic examples must keep the exact original query text.",
     )
     parser.add_argument(
-        "--original-image-verify",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Whether verification should compare candidates against the original image/task distribution context.",
-    )
-    parser.add_argument(
         "--image-generation-pipe",
         choices=["code_synthesis"],
         help="Image generation backend.",
@@ -135,15 +129,18 @@ def main() -> None:
     )
     parser.add_argument("--output-dir", help="Directory for generated images.")
     parser.add_argument("--log-json-path", help="Path to save detailed intermediate pipeline log JSON.")
-    parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=None, help="Print pipeline stage progress and intermediate results.")
     parser.add_argument("--mllm-api-key", help="Override MLLM API key (or set in config/env).")
     parser.add_argument("--mllm-base-url", help="Override MLLM base URL (or set in config/env).")
     parser.add_argument("--mllm-model-name", help="Override MLLM model name (or set in config/env).")
+    parser.add_argument("--coding-mllm-api-key", help="Override coding MLLM API key (or set in config/env).")
+    parser.add_argument("--coding-mllm-base-url", help="Override coding MLLM base URL (or set in config/env).")
+    parser.add_argument("--coding-mllm-model-name", help="Override coding MLLM model name (or set in config/env).")
     args = parser.parse_args()
 
     config = _load_config(args.config)
     mllm_cfg = config.get("mllm", {}) if isinstance(config.get("mllm"), dict) else {}
     run_cfg = config.get("run", {}) if isinstance(config.get("run"), dict) else {}
+    coding_mllm_cfg = config.get("coding_mllm", {}) if isinstance(config.get("coding_mllm"), dict) else {}
 
     image = _coalesce(args.image, run_cfg, "image")
     query = _coalesce(args.query, run_cfg, "query")
@@ -153,8 +150,6 @@ def main() -> None:
     top_k = int(_coalesce(args.top_k, run_cfg, "top_k") or 3)
     preserve_original_query_cfg = _coalesce(args.preserve_original_query, run_cfg, "preserve_original_query")
     preserve_original_query = True if preserve_original_query_cfg is None else bool(preserve_original_query_cfg)
-    original_image_verify_cfg = _coalesce(args.original_image_verify, run_cfg, "original_image_verify")
-    original_image_verify = False if original_image_verify_cfg is None else bool(original_image_verify_cfg)
     answer_sampling_format_retry_times_raw = _coalesce(None, run_cfg, "answer_sampling_format_retry_times")
     answer_sampling_format_retry_times = (
         int(answer_sampling_format_retry_times_raw) if answer_sampling_format_retry_times_raw is not None else 5
@@ -163,7 +158,6 @@ def main() -> None:
     output_dir = _coalesce(args.output_dir, run_cfg, "output_dir") or "synthetic_outputs"
     test_pt_path_raw = _coalesce(None, run_cfg, "test_pt_path")
     log_json_path = _coalesce(args.log_json_path, run_cfg, "log_json_path")
-    verbose = bool(_coalesce(args.verbose, run_cfg, "verbose") if _coalesce(args.verbose, run_cfg, "verbose") is not None else False)
 
     test_pt_path = Path(test_pt_path_raw) if test_pt_path_raw else None
     if test_pt_path is None:
@@ -188,7 +182,12 @@ def main() -> None:
         base_url=_coalesce(args.mllm_base_url, mllm_cfg, "base_url"),
         model=_coalesce(args.mllm_model_name, mllm_cfg, "model_name"),
     )
-    image_generation_module = create_image_generation_module(backbone)
+    coding_backbone = MLLMBackbone(
+        api_key=_coalesce(args.coding_mllm_api_key, coding_mllm_cfg, "api_key") or backbone.api_key,
+        base_url=_coalesce(args.coding_mllm_base_url, coding_mllm_cfg, "base_url") or backbone.base_url,
+        model=_coalesce(args.coding_mllm_model_name, coding_mllm_cfg, "model_name") or backbone.model,
+    )
+    image_generation_module = create_image_generation_module(backbone, coding_backbone=coding_backbone)
     pipeline = SyntheticICLPipeline(backbone, image_generation_module=image_generation_module)
     if hasattr(pipeline.answer_sampling_module, "format_retry_times"):
         pipeline.answer_sampling_module.format_retry_times = max(0, answer_sampling_format_retry_times)
@@ -209,9 +208,7 @@ def main() -> None:
                 num_answers_per_scenario=num_answers_per_scenario,
                 top_k=top_k,
                 dry_run=bool(dry_run),
-                verbose=verbose,
                 preserve_original_query=preserve_original_query,
-                original_image_verify=original_image_verify,
                 scenario_regen_rounds=scenario_regen_rounds,
             )
 
@@ -237,9 +234,7 @@ def main() -> None:
             num_answers_per_scenario=num_answers_per_scenario,
             top_k=top_k,
             dry_run=bool(dry_run),
-            verbose=verbose,
             preserve_original_query=preserve_original_query,
-            original_image_verify=original_image_verify,
             scenario_regen_rounds=scenario_regen_rounds,
         )
 

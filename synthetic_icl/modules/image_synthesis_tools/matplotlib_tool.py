@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from synthetic_icl.backbone import MLLMBackbone
-from synthetic_icl.json_utils import robust_json_parse
+from synthetic_icl.json_utils import llm_json_call_with_retry
 from synthetic_icl.modules.image_synthesis_tools.base import ExecutionResult, SynthesisTool, ToolPlan
 
 
@@ -24,8 +24,7 @@ Constraints:
 - Produce Python code that sets variable output_image to a PIL Image.
 - Emphasize task-answerability over visual style, but keep style moderately aligned.
 """.strip()
-        raw = self.backbone.generate_response_text(prompt)
-        parsed = robust_json_parse(raw)
+        parsed = llm_json_call_with_retry(lambda: self.backbone.generate_response_text(prompt), max_attempts=3)
         if not isinstance(parsed, dict):
             raise ValueError("matplotlib planner did not return JSON object")
         spec = dict(parsed.get("implementation_spec") or {})

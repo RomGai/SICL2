@@ -23,6 +23,14 @@ Fallback is currently disabled; verification failure triggers same-route replan 
 pip install -r requirements.txt
 ```
 
+## Config
+
+Use `synthetic_icl/demo_config.example.json`.
+
+- `mllm`: general reasoning backbone (understanding/induction/routing/verification).
+- `coding_mllm`: optional separate backbone for coding planners/executors (e.g. `gemini-3.5-flash`).
+- `run`: runtime options. Removed obsolete fields that are not used by current route-aware pipeline.
+
 ## Run
 
 ```bash

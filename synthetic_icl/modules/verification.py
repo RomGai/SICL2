@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from PIL import Image
 
 from synthetic_icl.backbone import MLLMBackbone
-from synthetic_icl.json_utils import robust_json_parse
+from synthetic_icl.json_utils import llm_json_call_with_retry
 from synthetic_icl.schemas import AnswerSpec, ScenarioSpec, TaskIR
 
 
@@ -54,8 +54,10 @@ Return strict JSON:
 {{"status":"completed","pass":true,"predicted_answer":"...","matches_known_answer":true,
 "ambiguity_score":0.2,"reason":"...","issues":["..."],"improvement_actions":["..."],"is_valid_demo":true,"confidence":0.8}}
 """.strip()
-        raw = self.backbone.generate_response_multimodal_single(synthetic_image, prompt)
-        parsed = robust_json_parse(raw)
+        parsed = llm_json_call_with_retry(
+            lambda: self.backbone.generate_response_multimodal_single(synthetic_image, prompt),
+            max_attempts=3,
+        )
         if not isinstance(parsed, dict):
             raise ValueError("VerificationModule expected JSON object")
         parsed.setdefault("status", "completed")

@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from synthetic_icl.backbone import MLLMBackbone
-from synthetic_icl.json_utils import robust_json_parse
+from synthetic_icl.json_utils import llm_json_call_with_retry
 from synthetic_icl.schemas import TaskIR
 
 
@@ -39,8 +39,7 @@ Return strict JSON:
   "fallback_allowed": false
 }}
 """.strip()
-        raw = self.backbone.generate_response_text(prompt)
-        parsed = robust_json_parse(raw)
+        parsed = llm_json_call_with_retry(lambda: self.backbone.generate_response_text(prompt), max_attempts=3)
         if not isinstance(parsed, dict):
             parsed = {}
         selected = str(parsed.get("selected_route", "")).strip()
@@ -48,7 +47,7 @@ Return strict JSON:
             selected = routes[0]
         return {
             "selected_route": selected,
-            "route_confidence": float(parsed.get("route_confidence", 0.5) or 0.5),
+            "route_confidence": self._safe_float(parsed.get("route_confidence"), default=0.5),
             "route_reason": str(parsed.get("route_reason", "fallback to first allowed route")),
             "style_alignment_notes": [str(x) for x in parsed.get("style_alignment_notes", [])] if isinstance(parsed.get("style_alignment_notes"), list) else [],
             "constraints": [str(x) for x in parsed.get("constraints", [])] if isinstance(parsed.get("constraints"), list) else [],

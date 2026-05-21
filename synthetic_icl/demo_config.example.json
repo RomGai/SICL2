@@ -4,6 +4,11 @@
     "base_url": "https://ai.juguang.chat/v1",
     "model_name": "gemini-3-flash-preview-thinking"
   },
+  "coding_mllm": {
+    "api_key": "YOUR_API_KEY",
+    "base_url": "https://ai.juguang.chat/v1",
+    "model_name": "gemini-3.5-flash"
+  },
   "run": {
     "image": "synthetic_icl/images/1.png",
     "query": "What is the name of the subplot with a smoother transition on the surface from highest to lowest values?",
@@ -12,11 +17,9 @@
     "num_answers_per_scenario": 1,
     "top_k": 2,
     "preserve_original_query": true,
-    "original_image_verify": false,
     "image_generation_pipe": "code_synthesis",
     "dry_run": false,
     "output_dir": "synthetic_outputs",
-    "verbose": true,
     "log_json_path": "synthetic_outputs/run_log.json"
   }
 }

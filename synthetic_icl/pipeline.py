@@ -38,7 +38,18 @@ class SyntheticICLPipeline:
         self.last_run_log: dict[str, Any] = {}
         self.last_attempt_traces: list[dict[str, Any]] = []
 
-    def run(self, original_image: Image.Image, original_query: str, num_scenarios: int = 5, num_answers_per_scenario: int = 1, top_k: int = 3, dry_run: bool = False, preserve_original_query: bool = True, scenario_regen_rounds: int = 3, max_replan_rounds: int = 2, **_: Any) -> list[SyntheticExample]:
+    def run(
+        self,
+        original_image: Image.Image,
+        original_query: str,
+        num_scenarios: int = 5,
+        num_answers_per_scenario: int = 1,
+        top_k: int = 3,
+        dry_run: bool = False,
+        preserve_original_query: bool = True,
+        scenario_regen_rounds: int = 3,
+        max_replan_rounds: int = 2,
+    ) -> list[SyntheticExample]:
         understanding = self.image_understanding_module.run(original_image, original_query)
         task_ir = self.task_induction_module.run(original_query, understanding)
         scenarios = self.scenario_expansion_module.run(task_ir, num_scenarios, max_regen_rounds=scenario_regen_rounds)

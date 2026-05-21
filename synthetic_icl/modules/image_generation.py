@@ -58,5 +58,5 @@ class ImageGenerationModule:
         )
 
 
-def create_image_generation_module(backbone: MLLMBackbone) -> ImageGenerationModule:
-    return ImageGenerationModule(backbone=backbone)
+def create_image_generation_module(backbone: MLLMBackbone, coding_backbone: MLLMBackbone | None = None) -> ImageGenerationModule:
+    return ImageGenerationModule(backbone=coding_backbone or backbone)
