@@ -76,3 +76,18 @@ def robust_json_parse(text: str) -> Any:
 
     snippet = text[:1000].replace("\n", "\\n")
     raise RobustJSONParseError(f"Failed to parse JSON from MLLM output. Snippet: {snippet}")
+
+
+def llm_json_call_with_retry(call_fn, *, max_attempts: int = 3) -> Any:
+    """Call an LLM function and robustly parse JSON with retry on parse failure."""
+    last_error: Exception | None = None
+    for _ in range(max(1, max_attempts)):
+        raw = call_fn()
+        try:
+            return robust_json_parse(raw)
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            continue
+    if last_error is None:
+        raise RobustJSONParseError("Failed to parse JSON: unknown error")
+    raise RobustJSONParseError(f"Failed to parse JSON after {max_attempts} attempts: {last_error}")
