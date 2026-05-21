@@ -7,7 +7,7 @@
   "coding_mllm": {
     "api_key": "YOUR_API_KEY",
     "base_url": "https://ai.juguang.chat/v1",
-    "model_name": "gemini-3.5-flash"
+    "model_name": "[0.4刀/次]gemini-3.5-flash"
   },
   "run": {
     "image": "synthetic_icl/images/1.png",
@@ -26,3 +26,4 @@
     "log_json_path": "synthetic_outputs/run_log.json"
   }
 }
+
